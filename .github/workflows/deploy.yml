@@ -46,8 +46,8 @@ jobs:
       - name: Update image tag in GitOps repository
         run: |
           cd gitops-repo
-          # Update claude-skills container image in deployments/claude-skills.yaml (by container name)
-          yq eval '.spec.template.spec.containers |= map(if .name == "claude-skills" then .image = "'$IMAGE_NAME'" else . end)' -i deployments/claude-skills.yaml
+          # Update claude-skills container image (first container in spec.template.spec.containers)
+          yq eval '.spec.template.spec.containers[0].image = strenv(IMAGE_NAME)' -i deployments/claude-skills.yaml
           echo "Updated image to: $IMAGE_NAME"
 
       - name: Commit and push changes

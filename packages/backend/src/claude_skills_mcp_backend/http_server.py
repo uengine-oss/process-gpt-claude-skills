@@ -193,20 +193,21 @@ def _find_skill_directory(
                         continue
                 
                 skill_found = skill
-                # skill.source is the SKILL.md file path, so get the parent directory
+                # skill.source is the SKILL.md file path; only use it when it's a local path (uploaded skill)
+                # GitHub sources are URLs, so Path(...).is_file() is False and we leave skill_dir None (built-in)
                 if skill.source and isinstance(skill.source, str) and local_root:
                     source_path = Path(skill.source)
-                    # Check if it's a file (SKILL.md) or directory
+                    candidate_dir = None
                     if source_path.is_file() and source_path.name == "SKILL.md":
-                        skill_dir = source_path.parent
+                        candidate_dir = source_path.parent
                     elif source_path.is_dir():
-                        skill_dir = source_path
-                    # Verify it's within local_root (uploaded skill)
-                    if skill_dir:
+                        candidate_dir = source_path
+                    if candidate_dir is not None:
                         try:
-                            skill_dir.relative_to(local_root.resolve())
-                        except ValueError:
-                            skill_dir = None  # Built-in: not in local storage
+                            candidate_dir.relative_to(local_root.resolve())
+                            skill_dir = candidate_dir
+                        except (ValueError, TypeError):
+                            pass  # built-in skill: not under local_root
                 break
 
     # If not found via search_engine, search local storage with path-based lookup

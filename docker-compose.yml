@@ -2,11 +2,11 @@ services:
   backend:
     # Option 1: Use pre-built image - run 'docker-compose up -d'
     image: ghcr.io/uengine-oss/claude-skills:latest
-    
+
     # Option 2: Build from source - run 'docker-compose up -d --build'
-    build:
-      context: .
-      dockerfile: packages/backend/Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: packages/backend/Dockerfile
     
     container_name: claude-skills
     ports:
