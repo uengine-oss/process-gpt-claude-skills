@@ -24,17 +24,8 @@ docker-compose down
 
 #### Option B: 소스에서 빌드
 
-`docker-compose.yml`에서 이미지를 주석 처리하고 build 섹션을 활성화:
-
-```yaml
-# image: ghcr.io/jinyoung/claude-skills-mcp-backend:latest  # 이 줄 주석 처리
-build:                                                        # 이 줄들 주석 해제
-  context: .
-  dockerfile: packages/backend/Dockerfile
-```
-
 ```bash
-# 이미지 빌드 및 컨테이너 시작
+# 이미지 빌드 및 컨테이너 시작 (ghcr.io/uengine-oss/claude-skills:latest로 빌드됨)
 docker-compose up -d --build
 ```
 
@@ -44,26 +35,20 @@ docker-compose up -d --build
 
 ```bash
 # GitHub Container Registry에서 이미지 다운로드
-docker pull ghcr.io/jinyoung/claude-skills-mcp-backend:latest
+docker pull ghcr.io/uengine-oss/claude-skills:latest
 
 # 컨테이너 실행
-docker run -d -p 8765:8765 --name claude-skills-backend ghcr.io/jinyoung/claude-skills-mcp-backend:latest
+docker run -d -p 8765:8765 --name claude-skills ghcr.io/uengine-oss/claude-skills:latest
 ```
 
 #### Option B: 소스에서 빌드
 
 ```bash
-# 이미지 빌드 (프로젝트 루트에서)
-docker build -t claude-skills -f packages/backend/Dockerfile .
-
+# 이미지 빌드 (프로젝트 루트에서, ghcr.io/uengine-oss/claude-skills:latest로 태그)
 docker build -t ghcr.io/uengine-oss/claude-skills:latest -f packages/backend/Dockerfile .
-docker push ghcr.io/uengine-oss/claude-skills:latest
-kubectl rollout restart deployment/claude-skills -n dev
-
-docker tag claude-skills-mcp-backend:latest ghcr.io/uengine-oss/claude-skills:latest
 
 # 컨테이너 실행
-docker run -d -p 8765:8765 --name claude-skills claude-skills
+docker run -d -p 8765:8765 --name claude-skills ghcr.io/uengine-oss/claude-skills:latest
 
 # 로그 확인
 docker logs -f claude-skills
@@ -192,7 +177,7 @@ claude-skills-mcp  0.23%     576MB / 7.66GB
 
 ```bash
 # 로그 확인
-docker logs claude-skills-mcp-backend
+docker logs claude-skills
 
 # 컨테이너 재시작
 docker-compose restart
@@ -202,10 +187,10 @@ docker-compose restart
 
 ```bash
 # 컨테이너 상태 확인
-docker inspect claude-skills-mcp-backend | grep -A 20 "Health"
+docker inspect claude-skills | grep -A 20 "Health"
 
 # 수동 health check
-docker exec claude-skills-mcp-backend curl localhost:8765/health
+docker exec claude-skills curl localhost:8765/health
 ```
 
 ### 포트 충돌
@@ -261,7 +246,7 @@ logging:
 
 ```bash
 # 실시간 모니터링
-docker stats claude-skills-mcp-backend
+docker stats claude-skills
 
 # Health check
 watch -n 5 'curl -s http://localhost:8765/health | python3 -m json.tool'
@@ -292,7 +277,7 @@ cp config.json config.json.backup
 docker run --rm -v claude-skills-data:/data -v $(pwd):/backup alpine tar czf /backup/skills-backup.tar.gz -C /data .
 
 # 캐시 백업 (선택사항)
-docker cp claude-skills-mcp-backend:/tmp/claude_skills_mcp_cache ./cache_backup
+docker cp claude-skills:/tmp/claude_skills_mcp_cache ./cache_backup
 ```
 
 ### 복원
@@ -308,31 +293,31 @@ docker run --rm -v claude-skills-data:/data -v $(pwd):/backup alpine tar xzf /ba
 
 공식 이미지가 GitHub Container Registry에 호스팅됩니다:
 
-- **Latest**: `ghcr.io/jinyoung/claude-skills-mcp-backend:latest`
-- **버전별**: `ghcr.io/jinyoung/claude-skills-mcp-backend:1.0.6`
+- **Latest**: `ghcr.io/uengine-oss/claude-skills:latest`
+- **버전별**: `ghcr.io/uengine-oss/claude-skills:1.0.6`
 
 ### 이미지 사양
 
 - **베이스 이미지**: python:3.12-slim
 - **크기**: ~2.34GB (PyTorch CPU 포함)
 - **아키텍처**: linux/amd64
-- **엔트리포인트**: claude-skills-mcp-backend
+- **엔트리포인트**: claude-skills-mcp-backend (내부 실행 명령)
 
 ### 사용 가능한 태그
 
 ```bash
 # 최신 버전 (권장)
-docker pull ghcr.io/jinyoung/claude-skills-mcp-backend:latest
+docker pull ghcr.io/uengine-oss/claude-skills:latest
 
 # 특정 버전
-docker pull ghcr.io/jinyoung/claude-skills-mcp-backend:1.0.6
+docker pull ghcr.io/uengine-oss/claude-skills:1.0.6
 ```
 
 ## 참고
 
 - 백엔드 README: [packages/backend/README.md](packages/backend/README.md)
 - 메인 문서: [README.md](README.md)
-- GitHub Container Registry: https://github.com/jinyoung/claude-skills-mcp-backend/pkgs/container/claude-skills-mcp-backend
+- GitHub Container Registry: https://github.com/orgs/uengine-oss/packages/container/claude-skills
 
 ## 지원
 

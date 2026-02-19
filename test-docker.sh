@@ -17,12 +17,12 @@ echo ""
 
 # Check recent logs
 echo "3. Recent logs (last 20 lines)..."
-docker logs --tail=20 claude-skills-mcp-backend
+docker logs --tail=20 claude-skills
 echo ""
 
 # Check resource usage
 echo "4. Container resource usage..."
-docker stats --no-stream claude-skills-mcp-backend
+docker stats --no-stream claude-skills
 echo ""
 
 echo "========================================="

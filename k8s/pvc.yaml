@@ -4,6 +4,7 @@ metadata:
   name: claude-skills-storage
   namespace: dev
 spec:
+  storageClassName: standard-rwo  # GCP GKE 기본 스토리지 클래스 (또는 클러스터에 맞는 값으로 변경)
   accessModes:
     - ReadWriteOnce
   resources:

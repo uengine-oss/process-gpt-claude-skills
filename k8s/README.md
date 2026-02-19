@@ -53,9 +53,18 @@ kubectl apply -f k8s/service.yaml
 - 환경 변수: `SKILLS_STORAGE_PATH=/app/skills`
 - 저장 용량: 1Gi (필요시 `k8s/pvc.yaml`에서 조정)
 
-### 스토리지 클래스 커스터마이징
+### 스토리지 클래스 설정
 
-클러스터의 기본 스토리지 클래스가 아닌 다른 것을 사용하려면 `k8s/pvc.yaml` 수정:
+**중요:** GCP GKE에서는 `storageClassName`을 명시적으로 지정하는 것이 권장됩니다.
+
+현재 설정된 값: `standard-rwo` (GCP GKE 기본값)
+
+클러스터의 실제 스토리지 클래스를 확인:
+```bash
+kubectl get storageclass
+```
+
+다른 스토리지 클래스를 사용하려면 `k8s/pvc.yaml` 수정:
 
 ```yaml
 spec:
@@ -66,6 +75,10 @@ spec:
     requests:
       storage: 1Gi
 ```
+
+**주의:** 
+- GKE Spot 인스턴스를 사용하는 경우, 노드가 변경될 때 ReadWriteOnce PVC가 제대로 마운트되지 않을 수 있습니다
+- 이 경우 일반 노드 풀 사용을 고려하거나, ReadWriteMany 스토리지 클래스를 사용하세요
 
 ### 저장 용량 확장
 

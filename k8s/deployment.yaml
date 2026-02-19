@@ -17,6 +17,24 @@ spec:
     spec:
       nodeSelector:
         cloud.google.com/gke-spot: "true"
+      # InitContainer: 볼륨이 마운트되고 디렉토리가 준비될 때까지 대기
+      initContainers:
+        - name: volume-mount-check
+          image: busybox:1.36
+          command: ['sh', '-c']
+          args:
+            - |
+              echo "Checking if volume is mounted..."
+              if [ ! -d /app/skills ]; then
+                echo "ERROR: /app/skills directory does not exist!"
+                exit 1
+              fi
+              echo "Volume mounted successfully at /app/skills"
+              ls -la /app/skills
+              exit 0
+          volumeMounts:
+            - name: skills-storage
+              mountPath: /app/skills
       containers:
         - name: claude-skills
           image: ghcr.io/uengine-oss/claude-skills:latest
@@ -51,10 +69,12 @@ spec:
           volumeMounts:
             - name: skills-storage
               mountPath: /app/skills
+              # subPath를 사용하지 않아 루트에 직접 마운트
       volumes:
         - name: skills-storage
           persistentVolumeClaim:
             claimName: claude-skills-storage
+            # readOnly: false (기본값) - 읽기/쓰기 가능
       tolerations:
         - effect: NoSchedule
           key: kubernetes.io/arch

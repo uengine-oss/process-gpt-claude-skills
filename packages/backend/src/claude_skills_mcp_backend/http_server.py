@@ -167,9 +167,6 @@ def _find_skill_directory(
         tuple[Path | None, Skill | None]: (skill_dir, skill) or (None, None) if not found
     """
     local_root = _get_primary_local_skill_root()
-    if local_root is None:
-        return None, None
-    
     skill_found = None
     skill_dir = None
     
@@ -197,24 +194,23 @@ def _find_skill_directory(
                 
                 skill_found = skill
                 # skill.source is the SKILL.md file path, so get the parent directory
-                if skill.source and isinstance(skill.source, str):
+                if skill.source and isinstance(skill.source, str) and local_root:
                     source_path = Path(skill.source)
                     # Check if it's a file (SKILL.md) or directory
                     if source_path.is_file() and source_path.name == "SKILL.md":
                         skill_dir = source_path.parent
                     elif source_path.is_dir():
                         skill_dir = source_path
-                    # Verify it's within local_root
-                    try:
-                        skill_dir.relative_to(local_root)
-                    except ValueError:
-                        # Not in local_root, will search below
-                        skill_dir = None
+                    # Verify it's within local_root (uploaded skill)
+                    if skill_dir:
+                        try:
+                            skill_dir.relative_to(local_root.resolve())
+                        except ValueError:
+                            skill_dir = None  # Built-in: not in local storage
                 break
-    
+
     # If not found via search_engine, search local storage with path-based lookup
-    # Skills are stored at tenant level only (not agent level)
-    if skill_dir is None or not skill_dir.exists():
+    if local_root and (skill_dir is None or not skill_dir.exists()):
         # Build expected path based on tenant_id only
         skill_slug = _slugify(skill_name)
         expected_paths = []
@@ -1397,6 +1393,70 @@ async def list_uploaded_skills(request):
     )
 
 
+def _is_builtin_skill(skill: Skill, local_root: Path | None) -> bool:
+    """Return True if skill is built-in (not from primary local upload storage)."""
+    if not skill.source:
+        return True
+    source_str = str(skill.source)
+    if "github.com" in source_str:
+        return True
+    if local_root is None:
+        return True
+    try:
+        source_path = Path(skill.source).resolve()
+        return not source_path.is_relative_to(local_root.resolve())
+    except (ValueError, OSError):
+        return True
+
+
+async def list_builtin_skills(request):
+    """List all built-in (non-uploaded) skills from the search index."""
+    if request.method != "GET":  # pragma: no cover - Starlette enforces methods
+        return JSONResponse({"detail": "Method not allowed"}, status_code=405)
+
+    if config_global is None:
+        return JSONResponse(
+            {"detail": "Backend not fully initialized"}, status_code=503
+        )
+    if search_engine is None:
+        return JSONResponse(
+            {"detail": "Search engine not initialized"}, status_code=503
+        )
+
+    local_root = _get_primary_local_skill_root()
+    builtin = [
+        skill
+        for skill in search_engine.skills
+        if _is_builtin_skill(skill, local_root)
+    ]
+
+    # Format source as owner/repo for GitHub URLs
+    def _format_source(source: str) -> str:
+        if "github.com" in source:
+            match = re.search(r"github\.com/([^/]+/[^/]+)", source)
+            if match:
+                return match.group(1)
+        return source
+
+    builtin_list = [
+        {
+            "name": skill.name,
+            "description": skill.description,
+            "source": _format_source(skill.source or ""),
+            "document_count": len(skill.documents),
+        }
+        for skill in builtin
+    ]
+
+    logger.info(f"Found {len(builtin_list)} built-in skills")
+    return JSONResponse(
+        {
+            "skills": builtin_list,
+            "count": len(builtin_list),
+        }
+    )
+
+
 async def list_skill_files(request):
     """List all files in a skill directory."""
     if request.method != "GET":  # pragma: no cover - Starlette enforces methods
@@ -1418,30 +1478,43 @@ async def list_skill_files(request):
     agent_id = request.query_params.get("agent_id")
     tenant_id = request.query_params.get("tenant_id")
 
-    # Find the skill directory
-    skill_dir, _ = _find_skill_directory(skill_name, tenant_id, agent_id)
-    if skill_dir is None:
+    # Find the skill (uploaded or built-in)
+    skill_dir, skill = _find_skill_directory(skill_name, tenant_id, agent_id)
+    if skill_dir is None and skill is None:
         return JSONResponse(
-            {"detail": f"Skill '{skill_name}' not found in local storage"}, 
-            status_code=404
+            {"detail": f"Skill '{skill_name}' not found"}, status_code=404
         )
 
     files = []
     try:
-        # List all files in the skill directory
-        for file_path in skill_dir.rglob("*"):
-            if file_path.is_file():
-                try:
-                    rel_path = str(file_path.relative_to(skill_dir))
-                    stat = file_path.stat()
-                    files.append({
-                        "path": rel_path,
-                        "size": stat.st_size,
-                        "modified": stat.st_mtime,
-                    })
-                except Exception as e:
-                    logger.warning(f"Error getting file info for {file_path}: {e}")
-                    continue
+        if skill_dir is not None:
+            # Uploaded skill: list files from filesystem
+            for file_path in skill_dir.rglob("*"):
+                if file_path.is_file():
+                    try:
+                        rel_path = str(file_path.relative_to(skill_dir))
+                        stat = file_path.stat()
+                        files.append({
+                            "path": rel_path,
+                            "size": stat.st_size,
+                            "modified": stat.st_mtime,
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error getting file info for {file_path}: {e}")
+                        continue
+        else:
+            # Built-in skill: list SKILL.md + documents from skill index
+            files.append({
+                "path": "SKILL.md",
+                "size": len(skill.content),
+                "modified": 0,
+            })
+            for doc_path, doc_meta in skill.documents.items():
+                files.append({
+                    "path": doc_path,
+                    "size": doc_meta.get("size", 0),
+                    "modified": 0,
+                })
 
         # Sort by path
         files.sort(key=lambda x: x["path"])
@@ -1491,15 +1564,83 @@ async def get_skill_file(request):
             {"detail": f"Invalid file path encoding: {e}"}, status_code=400
         )
 
-    # Find the skill directory
-    skill_dir, _ = _find_skill_directory(skill_name)
-    if skill_dir is None:
+    # Find the skill (uploaded or built-in)
+    skill_dir, skill = _find_skill_directory(skill_name)
+    if skill_dir is None and skill is None:
         return JSONResponse(
-            {"detail": f"Skill '{skill_name}' not found in local storage"}, 
-            status_code=404
+            {"detail": f"Skill '{skill_name}' not found"}, status_code=404
         )
 
-    # Build full file path
+    # Built-in skill: get content from skill index
+    if skill_dir is None and skill is not None:
+        # Prevent path traversal
+        if ".." in file_path_str or file_path_str.startswith("/"):
+            return JSONResponse(
+                {"detail": "Invalid file path: path traversal detected"},
+                status_code=400
+            )
+        if file_path_str == "SKILL.md":
+            text_content = skill.content
+            logger.info(f"Retrieved file 'SKILL.md' from built-in skill '{skill_name}'")
+            return JSONResponse({
+                "skill_name": skill_name,
+                "file_path": "SKILL.md",
+                "type": "text",
+                "size": len(text_content),
+                "modified": 0,
+                "content": text_content,
+                "source": "builtin",
+            })
+        doc = skill.get_document(file_path_str)
+        if doc is None:
+            # Verify path exists in documents (prevent path traversal)
+            if file_path_str not in skill.documents:
+                return JSONResponse(
+                    {"detail": f"File '{file_path_str}' not found in skill '{skill_name}'"},
+                    status_code=404
+                )
+            return JSONResponse(
+                {"detail": f"Failed to fetch file '{file_path_str}' from skill '{skill_name}'"},
+                status_code=500
+            )
+        doc_type = doc.get("type")
+        if doc_type == "text":
+            logger.info(f"Retrieved file '{file_path_str}' from built-in skill '{skill_name}'")
+            return JSONResponse({
+                "skill_name": skill_name,
+                "file_path": file_path_str,
+                "type": "text",
+                "size": doc.get("size", len(doc.get("content", ""))),
+                "modified": 0,
+                "content": doc.get("content", ""),
+                "source": "builtin",
+            })
+        if doc_type == "image":
+            if doc.get("size_exceeded"):
+                return JSONResponse({
+                    "skill_name": skill_name,
+                    "file_path": file_path_str,
+                    "type": "image",
+                    "size": doc.get("size", 0),
+                    "modified": 0,
+                    "url": doc.get("url", ""),
+                    "note": "Size exceeds limit, access via URL",
+                    "source": "builtin",
+                })
+            return JSONResponse({
+                "skill_name": skill_name,
+                "file_path": file_path_str,
+                "type": "binary",
+                "size": doc.get("size", 0),
+                "modified": 0,
+                "content_base64": doc.get("content", ""),
+                "source": "builtin",
+            })
+        return JSONResponse(
+            {"detail": f"Unsupported file type for '{file_path_str}'"}, status_code=400
+        )
+
+    # Uploaded skill: read from filesystem
     try:
         # Prevent path traversal
         file_path = skill_dir / file_path_str
@@ -1508,7 +1649,7 @@ async def get_skill_file(request):
         skill_dir_resolved = skill_dir.resolve()
         if not str(file_path).startswith(str(skill_dir_resolved)):
             return JSONResponse(
-                {"detail": "Invalid file path: path traversal detected"}, 
+                {"detail": "Invalid file path: path traversal detected"},
                 status_code=400
             )
     except Exception as e:
@@ -1518,13 +1659,13 @@ async def get_skill_file(request):
 
     if not file_path.exists():
         return JSONResponse(
-            {"detail": f"File '{file_path_str}' not found in skill '{skill_name}'"}, 
+            {"detail": f"File '{file_path_str}' not found in skill '{skill_name}'"},
             status_code=404
         )
 
     if not file_path.is_file():
         return JSONResponse(
-            {"detail": f"Path '{file_path_str}' is not a file"}, 
+            {"detail": f"Path '{file_path_str}' is not a file"},
             status_code=400
         )
 
@@ -2180,6 +2321,10 @@ def _ensure_routes(app):
     if "/skills/list" not in existing_paths:
         app.routes.insert(
             0, Route("/skills/list", list_uploaded_skills, methods=["GET"])
+        )
+    if "/skills/list-builtin" not in existing_paths:
+        app.routes.insert(
+            0, Route("/skills/list-builtin", list_builtin_skills, methods=["GET"])
         )
     # Skill deletion route (must be added before file routes to match correctly)
     skill_delete_path = "/skills/{skill_name}"

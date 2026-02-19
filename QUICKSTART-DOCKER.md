@@ -77,7 +77,7 @@ docker-compose restart
 docker-compose ps
 
 # 리소스 사용량 확인
-docker stats claude-skills-mcp-backend
+docker stats claude-skills
 ```
 
 ## ⚙️ 커스터마이징
@@ -123,7 +123,7 @@ Docker Desktop 설정에서 메모리를 최소 2GB로 증가시키세요.
 
 ```bash
 # 이미지를 수동으로 다운로드
-docker pull ghcr.io/jinyoung/claude-skills-mcp-backend:latest
+docker pull ghcr.io/uengine-oss/claude-skills:latest
 ```
 
 ## 📚 더 알아보기

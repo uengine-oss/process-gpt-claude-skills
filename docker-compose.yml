@@ -1,9 +1,8 @@
 services:
   backend:
-    # Option 1: Use pre-built image from GitHub Container Registry
-    # image: ghcr.io/uengine-oss/claude-skills:latest
-    
-    # Option 2: Build from source (comment out 'image' above and uncomment below)
+    image: ghcr.io/uengine-oss/claude-skills:latest
+    # Option 1: Use pre-built image - run 'docker-compose up -d'
+    # Option 2: Build from source - run 'docker-compose up -d --build'
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
