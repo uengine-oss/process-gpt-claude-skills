@@ -1042,7 +1042,12 @@ def load_all_skills(
         elif source_type == "local":
             path = source_config.get("path")
             if path:
-                skills = load_from_local(path, config)
+                # If this local path is a tenant-root (e.g., /app/skills/<tenant>/<skill>/SKILL.md),
+                # infer tenant_id from the first-level directory name.
+                if source_config.get("tenant_root") is True:
+                    skills = load_from_local_tenant_root(path, config)
+                else:
+                    skills = load_from_local(path, config)
                 all_skills.extend(skills)
 
         else:
@@ -1102,7 +1107,10 @@ def load_skills_in_batches(
             elif source_type == "local":
                 path = source_config.get("path")
                 if path:
-                    skills = load_from_local(path, config)
+                    if source_config.get("tenant_root") is True:
+                        skills = load_from_local_tenant_root(path, config)
+                    else:
+                        skills = load_from_local(path, config)
                     for skill in skills:
                         current_batch.append(skill)
                         if len(current_batch) >= batch_size:
@@ -1119,3 +1127,41 @@ def load_skills_in_batches(
     process_batch()
 
     logger.info(f"Finished loading {total_loaded} skills in batches")
+
+
+def load_from_local_tenant_root(
+    path: str, config: dict[str, Any] | None = None
+) -> list[Skill]:
+    """Load skills from a tenant-root directory.
+
+    Expected layout:
+      <path>/
+        <tenant_id_1>/<skill_dir>/SKILL.md
+        <tenant_id_2>/<skill_dir>/SKILL.md
+
+    This loader infers tenant_id from the first-level directory under <path>.
+    It also loads any skills directly under <path> as global skills.
+    """
+    skills: list[Skill] = []
+    root = Path(path).expanduser().resolve()
+
+    if not root.exists() or not root.is_dir():
+        logger.warning(f"Local tenant root {path} does not exist or is not a directory, skipping")
+        return skills
+
+    # 1) Load any "global" skills placed directly under the root.
+    skills.extend(load_from_local(str(root), config))
+
+    # 2) Load tenant-scoped skills from each immediate subdirectory.
+    try:
+        for tenant_dir in sorted([p for p in root.iterdir() if p.is_dir()]):
+            tenant_id = tenant_dir.name
+            tenant_skills = load_from_local(str(tenant_dir), config)
+            for s in tenant_skills:
+                s.tenant_id = tenant_id
+                s.scope = "tenant"
+            skills.extend(tenant_skills)
+    except Exception as e:
+        logger.error(f"Error loading tenant-root skills from {path}: {e}")
+
+    return skills

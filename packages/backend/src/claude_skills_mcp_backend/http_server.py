@@ -2162,6 +2162,32 @@ async def initialize_backend(config_path: str | None = None, verbose: bool = Fal
 
     # Load configuration
     config = load_config(config_path)
+
+    # If SKILLS_STORAGE_PATH is set (typical for Docker/K8s), make sure the
+    # backend also *loads* skills from that path on startup. We mark it as a
+    # tenant-root so skills under /app/skills/<tenant>/... keep tenant scope.
+    try:
+        import os
+
+        storage_path = os.getenv("SKILLS_STORAGE_PATH")
+        if storage_path:
+            updated = False
+            for src in config.get("skill_sources", []):
+                if src.get("type") == "local":
+                    src["path"] = storage_path
+                    src["tenant_root"] = True
+                    updated = True
+                    break
+            if not updated:
+                config.setdefault("skill_sources", []).append(
+                    {"type": "local", "path": storage_path, "tenant_root": True}
+                )
+            logger.info(
+                f"SKILLS_STORAGE_PATH is set; loading local skills from: {storage_path}"
+            )
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Failed to apply SKILLS_STORAGE_PATH override to skill_sources: {e}")
+
     config_global = config
 
     # Initialize search engine
